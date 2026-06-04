@@ -4,6 +4,28 @@
 
 Mimic 上游项目：<https://github.com/hack3ric/mimic>
 
+## 一键拉取运行
+
+推荐使用下面这一行，下载到 `/tmp` 后再运行，交互菜单的上下键选择会更稳定：
+
+```bash
+curl -fsSL -o /tmp/mimic-install.sh https://raw.githubusercontent.com/GHUNLIL/linux-mimic-installer/main/mimic-install.sh && chmod +x /tmp/mimic-install.sh && sudo bash /tmp/mimic-install.sh
+```
+
+只做预检，不改系统：
+
+```bash
+curl -fsSL -o /tmp/mimic-install.sh https://raw.githubusercontent.com/GHUNLIL/linux-mimic-installer/main/mimic-install.sh && bash /tmp/mimic-install.sh preflight
+```
+
+直接命令行一键安装并配置服务端示例：
+
+```bash
+curl -fsSL -o /tmp/mimic-install.sh https://raw.githubusercontent.com/GHUNLIL/linux-mimic-installer/main/mimic-install.sh && sudo bash /tmp/mimic-install.sh all --interface eth0 --filter local=203.0.113.10:51820
+```
+
+不建议用 `curl ... | bash` 跑交互菜单，因为管道会占用标准输入，方向键菜单可能无法读取按键。
+
 ## 功能
 
 - 中文交互菜单，默认直接运行脚本进入菜单。
@@ -15,6 +37,8 @@ Mimic 上游项目：<https://github.com/hack3ric/mimic>
 - 内置 Codex skill：`skills/linux-mimic-installer`。
 
 ## 快速使用
+
+从仓库克隆后本地运行：
 
 ```bash
 chmod +x mimic-install.sh
