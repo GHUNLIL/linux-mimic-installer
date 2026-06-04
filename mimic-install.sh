@@ -337,6 +337,15 @@ choose_tun_interface() {
   esac
 }
 
+primary_ip_for_interface() {
+  local iface="$1"
+  if command -v ip >/dev/null 2>&1; then
+    ip -4 -o addr show dev "$iface" scope global 2>/dev/null | awk '{split($4, a, "/"); print a[1]; exit}'
+    return 0
+  fi
+  return 0
+}
+
 normalize_endpoint_host() {
   local host="$1"
   case "$host" in
@@ -347,7 +356,7 @@ normalize_endpoint_host() {
 }
 
 choose_filter() {
-  local origin host port filter
+  local origin host port filter default_host
   menu_select "选择 Mimic filter 方向" \
     "服务端：local=本机监听IP:端口" \
     "客户端：remote=远端服务器IP:端口" \
@@ -355,7 +364,9 @@ choose_filter() {
   case "$MENU_SELECTED" in
     服务端：*)
       origin="local"
-      prompt_input "本机 WireGuard 监听 IP（IPv6 可直接输入，不用手动加方括号）" ""
+      default_host="$(primary_ip_for_interface "$INTERFACE")"
+      prompt_input "本机 WireGuard 监听 IP（IPv6 可直接输入，不用手动加方括号）" "$default_host"
+      [ -n "$PROMPT_VALUE" ] || die "本机监听 IP 不能为空。请填写对端访问这台机器使用的公网/专线 IP。"
       host="$(normalize_endpoint_host "$PROMPT_VALUE")"
       prompt_input "本机 WireGuard 监听端口" "51820"
       port="$PROMPT_VALUE"
@@ -364,6 +375,7 @@ choose_filter() {
     客户端：*)
       origin="remote"
       prompt_input "远端 WireGuard 服务器 IP（IPv6 可直接输入，不用手动加方括号）" ""
+      [ -n "$PROMPT_VALUE" ] || die "远端服务器 IP 不能为空。"
       host="$(normalize_endpoint_host "$PROMPT_VALUE")"
       prompt_input "远端 WireGuard 服务器端口" "51820"
       port="$PROMPT_VALUE"
@@ -375,11 +387,17 @@ choose_filter() {
       ;;
   esac
   [ -n "$filter" ] || die "filter 不能为空。"
+  case "$filter" in
+    local=:*|remote=:*) die "filter 不能省略 IP：$filter" ;;
+  esac
   FILTERS+=("$filter")
 
   while menu_yes_no "是否继续添加另一个 filter？"; do
     prompt_input "请输入完整 filter" ""
     [ -n "$PROMPT_VALUE" ] || die "filter 不能为空。"
+    case "$PROMPT_VALUE" in
+      local=:*|remote=:*) die "filter 不能省略 IP：$PROMPT_VALUE" ;;
+    esac
     FILTERS+=("$PROMPT_VALUE")
   done
 }
@@ -619,7 +637,7 @@ validate_common() {
 validate_interface() {
   [ -n "$INTERFACE" ] || die "需要 --interface，例如 --interface eth0"
   if command -v ip >/dev/null 2>&1 && [ "$FORCE" -ne 1 ]; then
-    ip link show dev "$INTERFACE" >/dev/null 2>&1 || die "网卡不存在：$INTERFACE。确认后可用 --force 跳过。"
+    ip link show dev "$INTERFACE" >/dev/null 2>&1 || die "网卡不存在：${INTERFACE}。确认后可用 --force 跳过。"
   fi
 }
 
@@ -628,8 +646,9 @@ validate_filters() {
   local f
   for f in "${FILTERS[@]}"; do
     case "$f" in
+      local=:*|remote=:*) die "filter 不能省略 IP：${f}。请写成 local=IP:PORT 或 remote=IP:PORT" ;;
       local=*:*|remote=*:*|local=\[*\]:*|remote=\[*\]:*) : ;;
-      *) die "filter 格式看起来不对：$f。应类似 local=IP:PORT 或 remote=IP:PORT" ;;
+      *) die "filter 格式看起来不对：${f}。应类似 local=IP:PORT 或 remote=IP:PORT" ;;
     esac
   done
 }
@@ -806,7 +825,7 @@ install_github_deb() {
   arch="$(deb_arch)"
   case "$codename:$arch" in
     bookworm:amd64|trixie:amd64|noble:amd64) : ;;
-    *) die "上游预编译 deb 当前只明确支持 bookworm/trixie/noble 的 amd64，本机是 ${codename:-unknown}/$arch。" ;;
+    *) die "上游预编译 deb 当前只明确支持 bookworm/trixie/noble 的 amd64，本机是 ${codename:-unknown}/${arch}。" ;;
   esac
 
   run apt-get update
@@ -931,7 +950,11 @@ set_wireguard_mtu() {
   [ -n "$WG_INTERFACE" ] || die "--set-wg-mtu 需要同时传 --wg-interface wg0"
   local conf tmp
   conf="/etc/wireguard/${WG_INTERFACE}.conf"
-  [ -f "$conf" ] || die "WireGuard 配置不存在：$conf"
+  if [ ! -f "$conf" ]; then
+    warn "WireGuard 配置不存在：${conf}，跳过自动 MTU 修改。"
+    warn "如果你使用的是 tun/tap 或其他隧道，请在对应软件里手动把 MTU 降 12 字节。"
+    return 0
+  fi
   backup_file "$conf"
   tmp="$(mktemp)"
   awk -v mtu="$WG_MTU" '
@@ -991,7 +1014,7 @@ rollback() {
   need_root
   validate_interface
   local unit="mimic@${INTERFACE}"
-  confirm "确认停止并禁用 $unit，并停用 /etc/mimic/${INTERFACE}.conf？"
+  confirm "确认停止并禁用 ${unit}，并停用 /etc/mimic/${INTERFACE}.conf？"
   if command -v systemctl >/dev/null 2>&1; then
     run systemctl disable --now "$unit" || true
   fi
