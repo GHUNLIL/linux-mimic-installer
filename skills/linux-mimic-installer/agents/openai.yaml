@@ -1,0 +1,4 @@
+interface:
+  display_name: "Linux Mimic 安装器"
+  short_description: "在 Linux 上安装和配置 Mimic"
+  default_prompt: "使用 $linux-mimic-installer 帮我在 Linux 服务器上安装并配置 Mimic。"
